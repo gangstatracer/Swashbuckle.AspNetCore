@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text.Json;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,9 +8,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Xunit;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-using Swashbuckle.AspNetCore.Newtonsoft;
 
 namespace Swashbuckle.AspNetCore.SwaggerGen.Test
 {
@@ -170,398 +168,398 @@ namespace Swashbuckle.AspNetCore.SwaggerGen.Test
             Assert.Empty(schema.Properties);
         }
 
-        [Theory]
-        [InlineData(typeof(ComplexType), "ComplexType", new[] { "Property1", "Property2", "Property3" })]
-        [InlineData(typeof(ComplexTypeWithFields), "ComplexTypeWithFields", new[] { "Field1", "Field2", "Field3" })]
-        [InlineData(typeof(GenericType<bool, int>), "BooleanInt32GenericType", new[] { "Property1", "Property2" })]
-        [InlineData(typeof(TypeWithNestedType.NestedType), "NestedType", new[] { "Property1" })]
-        public void GenerateSchema_GeneratesReferencedObjectSchema_IfComplexType(
-            Type type,
-            string expectedSchemaId,
-            string[] expectedProperties)
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(type, schemaRepository);
-
-            Assert.NotNull(referenceSchema.Reference);
-            Assert.Equal(expectedSchemaId, referenceSchema.Reference.Id);
-            var schema = schemaRepository.Schemas[expectedSchemaId];
-            Assert.Equal("object", schema.Type);
-            Assert.Equal(expectedProperties, schema.Properties.Keys);
-        }
-
-        [Fact]
-        public void GenerateSchema_IncludesInheritedProperties_IfDerivedType()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(SubType1), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal("object", schema.Type);
-            Assert.Equal(new[] { "Property1", "BaseProperty" }, schema.Properties.Keys);
-        }
-
-        [Fact]
-        public void GenerateSchema_ExcludesIndexerProperties_IfIndexedType()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(IndexedType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal("object", schema.Type);
-            Assert.Equal(new[] { "Property1" }, schema.Properties.Keys);
-        }
-
-        [Fact]
-        public void GenerateSchema_SetsReadOnlyAndWriteOnlyFlags_IfPropertyAccessIsRestricted()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(ComplexType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal(false, schema.Properties["Property1"].ReadOnly);
-            Assert.Equal(false, schema.Properties["Property1"].WriteOnly);
-            Assert.Equal(true, schema.Properties["Property2"].ReadOnly);
-            Assert.Equal(false, schema.Properties["Property2"].WriteOnly);
-            Assert.Equal(false, schema.Properties["Property3"].ReadOnly);
-            Assert.Equal(true, schema.Properties["Property3"].WriteOnly);
-        }
-
-        [Fact]
-        public void GenerateSchema_SetsValidationProperties_IfDataAnnotatedType()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(DataAnnotatedType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal(1, schema.Properties["IntWithRange"].Minimum);
-            Assert.Equal(12, schema.Properties["IntWithRange"].Maximum);
-            Assert.Equal("^[3-6]?\\d{12,15}$", schema.Properties["StringWithRegularExpression"].Pattern);
-            Assert.Equal(5, schema.Properties["StringWithStringLength"].MinLength);
-            Assert.Equal(10, schema.Properties["StringWithStringLength"].MaxLength);
-            Assert.Equal(1, schema.Properties["StringWithMinMaxLength"].MinLength);
-            Assert.Equal(3, schema.Properties["StringWithMinMaxLength"].MaxLength);
-            Assert.Equal(new[] { "IntWithRequired", "StringWithRequired" }, schema.Required.ToArray());
-            Assert.Equal("date", schema.Properties["StringWithDataTypeDate"].Format);
-            Assert.Equal("date-time", schema.Properties["StringWithDataTypeDateTime"].Format);
-            Assert.Equal("password", schema.Properties["StringWithDataTypePassword"].Format);
-            Assert.IsType<OpenApiString>(schema.Properties["StringWithDefaultValue"].Default);
-            Assert.Equal("foobar", ((OpenApiString)schema.Properties["StringWithDefaultValue"].Default).Value);
-        }
-
-        [Fact]
-        public void GenerateSchema_SetsValidationProperties_IfDataAnnotatedViaMetadataType()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(DataAnnotatedViaMetadataType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal(1, schema.Properties["IntWithRange"].Minimum);
-            Assert.Equal(12, schema.Properties["IntWithRange"].Maximum);
-            Assert.Equal("^[3-6]?\\d{12,15}$", schema.Properties["StringWithRegularExpression"].Pattern);
-            Assert.Equal(new[] { "IntWithRequired", "StringWithRequired" }, schema.Required.ToArray());
-        }
-
-        [Fact]
-        public void GenerateSchema_SupportsOptionToCustomizeSchemaForSpecificTypes()
-        {
-            var subject = Subject(c =>
-                c.CustomTypeMappings.Add(typeof(CompositeType), () => new OpenApiSchema { Type = "string" })
-            );
-
-            var schema = subject.GenerateSchema(typeof(CompositeType), new SchemaRepository());
-
-            Assert.Equal("string", schema.Type);
-            Assert.Empty(schema.Properties);
-        }
-
-        [Theory]
-        [InlineData(typeof(bool))]
-        [InlineData(typeof(IDictionary<string, string>))]
-        [InlineData(typeof(int[]))]
-        [InlineData(typeof(ComplexType))]
-        public void GenerateSchema_SupportsOptionToPostProcessGeneratedSchemas(Type type)
-        {
-            var subject = Subject(c =>
-                c.SchemaFilters.Add(new VendorExtensionsSchemaFilter())
-            );
-            var schemaRepository = new SchemaRepository();
-
-            var schema = subject.GenerateSchema(typeof(CompositeType), schemaRepository);
-
-            if (schema.Reference == null)
-                Assert.Contains("X-property1", schema.Extensions.Keys);
-            else
-                Assert.Contains("X-property1", schemaRepository.Schemas[schema.Reference.Id].Extensions.Keys);
-        }
-
-        [Fact]
-        public void GenerateSchema_SupportsOptionstoIgnoreObsoleteProperties()
-        {
-            var subject = Subject(c =>
-                c.IgnoreObsoleteProperties = true
-            );
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = subject.GenerateSchema(typeof(ObsoletePropertiesType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.DoesNotContain("ObsoleteProperty", schema.Properties.Keys);
-        }
-
-        [Fact]
-        public void GenerateSchema_SupportsOptionToCustomizeReferencedSchemaIds()
-        {
-            var subject = Subject(c =>
-                c.SchemaIdSelector = (type) => type.FullName
-            );
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = subject.GenerateSchema(typeof(ComplexType), schemaRepository);
-
-            Assert.Equal("Swashbuckle.AspNetCore.SwaggerGen.Test.ComplexType", referenceSchema.Reference.Id);
-            Assert.Contains(referenceSchema.Reference.Id, schemaRepository.Schemas.Keys);
-        }
-
-        [Fact]
-        public void GenerateSchema_SupportsOptionToGeneratePolymorphicSchemas()
-        {
-            var subject = Subject(c =>
-            {
-                c.GeneratePolymorphicSchemas = true;
-            });
-            var schemaRepository = new SchemaRepository();
-
-            var schema = subject.GenerateSchema(typeof(PolymorphicType), schemaRepository);
-
-            Assert.NotNull(schema.OneOf);
-            Assert.Equal(2, schema.OneOf.Count);
-            Assert.NotNull(schema.OneOf[0].Reference);
-            Assert.Equal("SubType1", schema.OneOf[0].Reference.Id);
-            Assert.Equal(new[] { "Property1", "BaseProperty" }, schemaRepository.Schemas["SubType1"].Properties.Keys);
-            Assert.NotNull(schema.OneOf[1].Reference);
-            Assert.Equal("SubType2", schema.OneOf[1].Reference.Id);
-            Assert.Equal(new[] { "Property2", "BaseProperty" }, schemaRepository.Schemas["SubType2"].Properties.Keys);
-        }
-
-        [Fact]
-        public void GenerateSchema_SupportsOptionToDescribeAllEnumsAsStrings()
-        {
-            var subject = Subject(c =>
-                c.DescribeAllEnumsAsStrings = true
-            );
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = subject.GenerateSchema(typeof(IntEnum), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal("string", schema.Type);
-            Assert.Equal(new[] { "Value2", "Value4", "Value8" }, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
-        }
-
-        [Fact]
-        public void GenerateSchema_SupportsOptionToDescribeStringEnumsInCamelCase()
-        {
-            var subject = Subject(c =>
-            {
-                c.DescribeAllEnumsAsStrings = true;
-                c.DescribeStringEnumsInCamelCase = true;
-            });
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = subject.GenerateSchema(typeof(IntEnum), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal("string", schema.Type);
-            Assert.Equal(new[] { "value2", "value4", "value8" }, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
-        }
-
-        [Fact]
-        public void GenerateSchema_HandlesTypesWithNestedTypes()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(TypeWithNestedType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal("object", schema.Type);
-            Assert.Equal("NestedType", schema.Properties["Property1"].Reference.Id);
-        }
-
-        [Fact]
-        public void GenerateSchema_HandlesRecursion_IfCalledAgainWithinAFilter()
-        {
-            var subject = Subject(c => c.SchemaFilters.Add(new RecursiveCallSchemaFilter()));
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = subject.GenerateSchema(typeof(ComplexType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal("ComplexType", schema.Properties["Self"].Reference.Id);
-        }
-
-        [Fact]
-        public void GenerateSchema_Errors_IfTypesHaveConflictingSchemaIds()
-        {
-            var subject = Subject();
-            var schemaRepository = new SchemaRepository();
-
-            subject.GenerateSchema(typeof(Namespace1.ConflictingType), schemaRepository);
-            Assert.Throws<InvalidOperationException>(() =>
-            {
-                subject.GenerateSchema(typeof(Namespace2.ConflictingType), schemaRepository);
-            });
-        }
-
-        [Fact]
-        public void GenerateSchema_HonorsStringEnumConverters_IfConfiguredViaAttributes()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(JsonConvertedEnum), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal("string", schema.Type);
-            Assert.Equal(new[] { "Value1", "Value2", "X" }, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
-        }
-
-        [Theory]
-        [InlineData(false, new[] { "Value2", "Value4", "Value8" })]
-        [InlineData(true, new[] { "value2", "value4", "value8" })]
-        public void GenerateSchema_HonorsStringEnumConverters_IfConfiguredGlobally(bool camelCaseText, string[] expectedEnumValues)
-        {
-            var subject = Subject(
-                configureOptions: c => { },
-                configureSerializer: c => { c.Converters.Add(new StringEnumConverter(camelCaseText)); }
-            );
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = subject.GenerateSchema(typeof(IntEnum), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal("string", schema.Type);
-            Assert.Equal(expectedEnumValues, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
-        }
-
-        [Fact]
-        public void GenerateSchema_HonorsJsonPropertyAnnotations()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(JsonPropertyAnnotatedType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal(
-                new[]
-                {
-                    //"StringWithJsonIgnore",
-                    "string-with-json-property-name",
-                    "IntWithRequiredDefault",
-                    "NullableIntWithRequiredDefault",
-                    "StringWithRequiredDefault",
-                    "StringWithRequiredDisallowNull",
-                    "StringWithRequiredAlways",
-                    "StringWithRequiredAllowNull"
-                },
-                schema.Properties.Keys.ToArray());
-
-            Assert.Equal(
-                new[]
-                {
-                    "StringWithRequiredAllowNull",
-                    "StringWithRequiredAlways"
-                },
-                schema.Required.ToArray());
-
-            Assert.True(schema.Properties["string-with-json-property-name"].Nullable);
-            Assert.False(schema.Properties["IntWithRequiredDefault"].Nullable);
-            Assert.True(schema.Properties["NullableIntWithRequiredDefault"].Nullable);
-            Assert.True(schema.Properties["StringWithRequiredDefault"].Nullable);
-            Assert.False(schema.Properties["StringWithRequiredDisallowNull"].Nullable);
-            Assert.False(schema.Properties["StringWithRequiredAlways"].Nullable);
-            Assert.True(schema.Properties["StringWithRequiredAllowNull"].Nullable);
-        }
-
-        [Fact]
-        public void GenerateSchema_HonorsJsonObjectAnnotations()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(JsonObjectAnnotatedType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal(
-                new[]
-                {
-                    "StringWithNoAnnotation",
-                    "StringWithRequiredUnspecified",
-                    "StringWithRequiredDefault",
-                    "StringWithRequiredDisallowNull",
-                    "StringWithRequiredAllowNull"
-                },
-                schema.Properties.Keys.ToArray());
-
-            Assert.Equal(
-                new[]
-                {
-                    "StringWithNoAnnotation",
-                    "StringWithRequiredAllowNull",
-                    "StringWithRequiredUnspecified"
-                },
-                schema.Required.ToArray());
-
-            Assert.False(schema.Properties["StringWithNoAnnotation"].Nullable);
-            Assert.False(schema.Properties["StringWithRequiredUnspecified"].Nullable);
-            Assert.True(schema.Properties["StringWithRequiredDefault"].Nullable);
-            Assert.False(schema.Properties["StringWithRequiredDisallowNull"].Nullable);
-            Assert.True(schema.Properties["StringWithRequiredAllowNull"].Nullable);
-        }
-
-        [Fact]
-        public void GenerateSchema_SetsAdditionalProperties_IfExtensionDataAnnotatedType()
-        {
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = Subject().GenerateSchema(typeof(ExtensionDataAnnotatedType), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.NotNull(schema.AdditionalProperties);
-            Assert.Equal("object", schema.AdditionalProperties.Type);
-        }
-
-        [Fact]
-        public void GenerateSchema_HonorsEnumMemberAttributes_IfAppliedToEnumValues()
-        {
-            var subject = Subject(configureSerializer: c =>
-                c.Converters = new[] { new StringEnumConverter() }
-            );
-            var schemaRepository = new SchemaRepository();
-
-            var referenceSchema = subject.GenerateSchema(typeof(AnnotatedEnum), schemaRepository);
-
-            var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
-            Assert.Equal("string", schema.Type);
-            Assert.Equal(new[] { "AE-FOO", "AE-BAR" }, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
-        }
+        //[Theory]
+        //[InlineData(typeof(ComplexType), "ComplexType", new[] { "Property1", "Property2", "Property3" })]
+        //[InlineData(typeof(ComplexTypeWithFields), "ComplexTypeWithFields", new[] { "Field1", "Field2", "Field3" })]
+        //[InlineData(typeof(GenericType<bool, int>), "BooleanInt32GenericType", new[] { "Property1", "Property2" })]
+        //[InlineData(typeof(TypeWithNestedType.NestedType), "NestedType", new[] { "Property1" })]
+        //public void GenerateSchema_GeneratesReferencedObjectSchema_IfComplexType(
+        //    Type type,
+        //    string expectedSchemaId,
+        //    string[] expectedProperties)
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(type, schemaRepository);
+
+        //    Assert.NotNull(referenceSchema.Reference);
+        //    Assert.Equal(expectedSchemaId, referenceSchema.Reference.Id);
+        //    var schema = schemaRepository.Schemas[expectedSchemaId];
+        //    Assert.Equal("object", schema.Type);
+        //    Assert.Equal(expectedProperties, schema.Properties.Keys);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_IncludesInheritedProperties_IfDerivedType()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(SubType1), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal("object", schema.Type);
+        //    Assert.Equal(new[] { "Property1", "BaseProperty" }, schema.Properties.Keys);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_ExcludesIndexerProperties_IfIndexedType()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(IndexedType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal("object", schema.Type);
+        //    Assert.Equal(new[] { "Property1" }, schema.Properties.Keys);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SetsReadOnlyAndWriteOnlyFlags_IfPropertyAccessIsRestricted()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(ComplexType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal(false, schema.Properties["Property1"].ReadOnly);
+        //    Assert.Equal(false, schema.Properties["Property1"].WriteOnly);
+        //    Assert.Equal(true, schema.Properties["Property2"].ReadOnly);
+        //    Assert.Equal(false, schema.Properties["Property2"].WriteOnly);
+        //    Assert.Equal(false, schema.Properties["Property3"].ReadOnly);
+        //    Assert.Equal(true, schema.Properties["Property3"].WriteOnly);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SetsValidationProperties_IfDataAnnotatedType()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(DataAnnotatedType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal(1, schema.Properties["IntWithRange"].Minimum);
+        //    Assert.Equal(12, schema.Properties["IntWithRange"].Maximum);
+        //    Assert.Equal("^[3-6]?\\d{12,15}$", schema.Properties["StringWithRegularExpression"].Pattern);
+        //    Assert.Equal(5, schema.Properties["StringWithStringLength"].MinLength);
+        //    Assert.Equal(10, schema.Properties["StringWithStringLength"].MaxLength);
+        //    Assert.Equal(1, schema.Properties["StringWithMinMaxLength"].MinLength);
+        //    Assert.Equal(3, schema.Properties["StringWithMinMaxLength"].MaxLength);
+        //    Assert.Equal(new[] { "IntWithRequired", "StringWithRequired" }, schema.Required.ToArray());
+        //    Assert.Equal("date", schema.Properties["StringWithDataTypeDate"].Format);
+        //    Assert.Equal("date-time", schema.Properties["StringWithDataTypeDateTime"].Format);
+        //    Assert.Equal("password", schema.Properties["StringWithDataTypePassword"].Format);
+        //    Assert.IsType<OpenApiString>(schema.Properties["StringWithDefaultValue"].Default);
+        //    Assert.Equal("foobar", ((OpenApiString)schema.Properties["StringWithDefaultValue"].Default).Value);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SetsValidationProperties_IfDataAnnotatedViaMetadataType()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(DataAnnotatedViaMetadataType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal(1, schema.Properties["IntWithRange"].Minimum);
+        //    Assert.Equal(12, schema.Properties["IntWithRange"].Maximum);
+        //    Assert.Equal("^[3-6]?\\d{12,15}$", schema.Properties["StringWithRegularExpression"].Pattern);
+        //    Assert.Equal(new[] { "IntWithRequired", "StringWithRequired" }, schema.Required.ToArray());
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SupportsOptionToCustomizeSchemaForSpecificTypes()
+        //{
+        //    var subject = Subject(c =>
+        //        c.CustomTypeMappings.Add(typeof(CompositeType), () => new OpenApiSchema { Type = "string" })
+        //    );
+
+        //    var schema = subject.GenerateSchema(typeof(CompositeType), new SchemaRepository());
+
+        //    Assert.Equal("string", schema.Type);
+        //    Assert.Empty(schema.Properties);
+        //}
+
+        //[Theory]
+        //[InlineData(typeof(bool))]
+        //[InlineData(typeof(IDictionary<string, string>))]
+        //[InlineData(typeof(int[]))]
+        //[InlineData(typeof(ComplexType))]
+        //public void GenerateSchema_SupportsOptionToPostProcessGeneratedSchemas(Type type)
+        //{
+        //    var subject = Subject(c =>
+        //        c.SchemaFilters.Add(new VendorExtensionsSchemaFilter())
+        //    );
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var schema = subject.GenerateSchema(typeof(CompositeType), schemaRepository);
+
+        //    if (schema.Reference == null)
+        //        Assert.Contains("X-property1", schema.Extensions.Keys);
+        //    else
+        //        Assert.Contains("X-property1", schemaRepository.Schemas[schema.Reference.Id].Extensions.Keys);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SupportsOptionstoIgnoreObsoleteProperties()
+        //{
+        //    var subject = Subject(c =>
+        //        c.IgnoreObsoleteProperties = true
+        //    );
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = subject.GenerateSchema(typeof(ObsoletePropertiesType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.DoesNotContain("ObsoleteProperty", schema.Properties.Keys);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SupportsOptionToCustomizeReferencedSchemaIds()
+        //{
+        //    var subject = Subject(c =>
+        //        c.SchemaIdSelector = (type) => type.FullName
+        //    );
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = subject.GenerateSchema(typeof(ComplexType), schemaRepository);
+
+        //    Assert.Equal("Swashbuckle.AspNetCore.SwaggerGen.Test.ComplexType", referenceSchema.Reference.Id);
+        //    Assert.Contains(referenceSchema.Reference.Id, schemaRepository.Schemas.Keys);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SupportsOptionToGeneratePolymorphicSchemas()
+        //{
+        //    var subject = Subject(c =>
+        //    {
+        //        c.GeneratePolymorphicSchemas = true;
+        //    });
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var schema = subject.GenerateSchema(typeof(PolymorphicType), schemaRepository);
+
+        //    Assert.NotNull(schema.OneOf);
+        //    Assert.Equal(2, schema.OneOf.Count);
+        //    Assert.NotNull(schema.OneOf[0].Reference);
+        //    Assert.Equal("SubType1", schema.OneOf[0].Reference.Id);
+        //    Assert.Equal(new[] { "Property1", "BaseProperty" }, schemaRepository.Schemas["SubType1"].Properties.Keys);
+        //    Assert.NotNull(schema.OneOf[1].Reference);
+        //    Assert.Equal("SubType2", schema.OneOf[1].Reference.Id);
+        //    Assert.Equal(new[] { "Property2", "BaseProperty" }, schemaRepository.Schemas["SubType2"].Properties.Keys);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SupportsOptionToDescribeAllEnumsAsStrings()
+        //{
+        //    var subject = Subject(c =>
+        //        c.DescribeAllEnumsAsStrings = true
+        //    );
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = subject.GenerateSchema(typeof(IntEnum), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal("string", schema.Type);
+        //    Assert.Equal(new[] { "Value2", "Value4", "Value8" }, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SupportsOptionToDescribeStringEnumsInCamelCase()
+        //{
+        //    var subject = Subject(c =>
+        //    {
+        //        c.DescribeAllEnumsAsStrings = true;
+        //        c.DescribeStringEnumsInCamelCase = true;
+        //    });
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = subject.GenerateSchema(typeof(IntEnum), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal("string", schema.Type);
+        //    Assert.Equal(new[] { "value2", "value4", "value8" }, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_HandlesTypesWithNestedTypes()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(TypeWithNestedType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal("object", schema.Type);
+        //    Assert.Equal("NestedType", schema.Properties["Property1"].Reference.Id);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_HandlesRecursion_IfCalledAgainWithinAFilter()
+        //{
+        //    var subject = Subject(c => c.SchemaFilters.Add(new RecursiveCallSchemaFilter()));
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = subject.GenerateSchema(typeof(ComplexType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal("ComplexType", schema.Properties["Self"].Reference.Id);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_Errors_IfTypesHaveConflictingSchemaIds()
+        //{
+        //    var subject = Subject();
+        //    var schemaRepository = new SchemaRepository();
+
+        //    subject.GenerateSchema(typeof(Namespace1.ConflictingType), schemaRepository);
+        //    Assert.Throws<InvalidOperationException>(() =>
+        //    {
+        //        subject.GenerateSchema(typeof(Namespace2.ConflictingType), schemaRepository);
+        //    });
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_HonorsStringEnumConverters_IfConfiguredViaAttributes()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(JsonConvertedEnum), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal("string", schema.Type);
+        //    Assert.Equal(new[] { "Value1", "Value2", "X" }, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
+        //}
+
+        //[Theory]
+        //[InlineData(false, new[] { "Value2", "Value4", "Value8" })]
+        //[InlineData(true, new[] { "value2", "value4", "value8" })]
+        //public void GenerateSchema_HonorsStringEnumConverters_IfConfiguredGlobally(bool camelCaseText, string[] expectedEnumValues)
+        //{
+        //    var subject = Subject(
+        //        configureOptions: c => { },
+        //        configureSerializer: c => { c.Converters.Add(new StringEnumConverter(camelCaseText)); }
+        //    );
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = subject.GenerateSchema(typeof(IntEnum), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal("string", schema.Type);
+        //    Assert.Equal(expectedEnumValues, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_HonorsJsonPropertyAnnotations()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(JsonPropertyAnnotatedType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal(
+        //        new[]
+        //        {
+        //            //"StringWithJsonIgnore",
+        //            "string-with-json-property-name",
+        //            "IntWithRequiredDefault",
+        //            "NullableIntWithRequiredDefault",
+        //            "StringWithRequiredDefault",
+        //            "StringWithRequiredDisallowNull",
+        //            "StringWithRequiredAlways",
+        //            "StringWithRequiredAllowNull"
+        //        },
+        //        schema.Properties.Keys.ToArray());
+
+        //    Assert.Equal(
+        //        new[]
+        //        {
+        //            "StringWithRequiredAllowNull",
+        //            "StringWithRequiredAlways"
+        //        },
+        //        schema.Required.ToArray());
+
+        //    Assert.True(schema.Properties["string-with-json-property-name"].Nullable);
+        //    Assert.False(schema.Properties["IntWithRequiredDefault"].Nullable);
+        //    Assert.True(schema.Properties["NullableIntWithRequiredDefault"].Nullable);
+        //    Assert.True(schema.Properties["StringWithRequiredDefault"].Nullable);
+        //    Assert.False(schema.Properties["StringWithRequiredDisallowNull"].Nullable);
+        //    Assert.False(schema.Properties["StringWithRequiredAlways"].Nullable);
+        //    Assert.True(schema.Properties["StringWithRequiredAllowNull"].Nullable);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_HonorsJsonObjectAnnotations()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(JsonObjectAnnotatedType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal(
+        //        new[]
+        //        {
+        //            "StringWithNoAnnotation",
+        //            "StringWithRequiredUnspecified",
+        //            "StringWithRequiredDefault",
+        //            "StringWithRequiredDisallowNull",
+        //            "StringWithRequiredAllowNull"
+        //        },
+        //        schema.Properties.Keys.ToArray());
+
+        //    Assert.Equal(
+        //        new[]
+        //        {
+        //            "StringWithNoAnnotation",
+        //            "StringWithRequiredAllowNull",
+        //            "StringWithRequiredUnspecified"
+        //        },
+        //        schema.Required.ToArray());
+
+        //    Assert.False(schema.Properties["StringWithNoAnnotation"].Nullable);
+        //    Assert.False(schema.Properties["StringWithRequiredUnspecified"].Nullable);
+        //    Assert.True(schema.Properties["StringWithRequiredDefault"].Nullable);
+        //    Assert.False(schema.Properties["StringWithRequiredDisallowNull"].Nullable);
+        //    Assert.True(schema.Properties["StringWithRequiredAllowNull"].Nullable);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_SetsAdditionalProperties_IfExtensionDataAnnotatedType()
+        //{
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = Subject().GenerateSchema(typeof(ExtensionDataAnnotatedType), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.NotNull(schema.AdditionalProperties);
+        //    Assert.Equal("object", schema.AdditionalProperties.Type);
+        //}
+
+        //[Fact]
+        //public void GenerateSchema_HonorsEnumMemberAttributes_IfAppliedToEnumValues()
+        //{
+        //    var subject = Subject(configureSerializer: c =>
+        //        c.Converters = new[] { new StringEnumConverter() }
+        //    );
+        //    var schemaRepository = new SchemaRepository();
+
+        //    var referenceSchema = subject.GenerateSchema(typeof(AnnotatedEnum), schemaRepository);
+
+        //    var schema = schemaRepository.Schemas[referenceSchema.Reference.Id];
+        //    Assert.Equal("string", schema.Type);
+        //    Assert.Equal(new[] { "AE-FOO", "AE-BAR" }, schema.Enum.Cast<OpenApiString>().Select(i => i.Value));
+        //}
 
         private ISchemaGenerator Subject(
             Action<SchemaGeneratorOptions> configureOptions = null,
-            Action<JsonSerializerSettings> configureSerializer = null)
+            Action<JsonSerializerOptions> configureSerializer = null)
         {
-            var jsonSerializerSettings = new JsonSerializerSettings();
-            configureSerializer?.Invoke(jsonSerializerSettings);
+            var jsonSerializerOptions = new JsonSerializerOptions();
+            configureSerializer?.Invoke(jsonSerializerOptions);
 
             var schemaGeneratorOptions = new SchemaGeneratorOptions();
             configureOptions?.Invoke(schemaGeneratorOptions);
 
             return new SchemaGenerator(
-                new NewtonsoftApiModelResolver(jsonSerializerSettings, schemaGeneratorOptions),
+                new JsonApiModelResolver(jsonSerializerOptions, schemaGeneratorOptions),
                 schemaGeneratorOptions);
         }
     }

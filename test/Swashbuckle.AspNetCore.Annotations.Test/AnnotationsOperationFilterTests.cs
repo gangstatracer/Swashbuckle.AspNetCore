@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.OpenApi.Models;
@@ -108,7 +109,7 @@ namespace Swashbuckle.AspNetCore.Annotations.Test
 
             return new OperationFilterContext(
                 apiDescription,
-                new SchemaGenerator(new NewtonsoftApiModelResolver(new JsonSerializerSettings(), schemaOptions), schemaOptions),
+                new SchemaGenerator(new JsonApiModelResolver(new JsonSerializerOptions(), schemaOptions), schemaOptions),
                 new SchemaRepository(),
                 (apiDescription.ActionDescriptor as ControllerActionDescriptor).MethodInfo);
         }

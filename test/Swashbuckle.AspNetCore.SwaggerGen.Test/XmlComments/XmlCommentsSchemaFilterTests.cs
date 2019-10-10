@@ -3,12 +3,10 @@ using System.Collections.Generic;
 using System.Xml.XPath;
 using System.Reflection;
 using System.IO;
+using System.Text.Json;
 using Microsoft.OpenApi.Models;
 using Microsoft.OpenApi.Any;
 using Xunit;
-using Microsoft.AspNetCore.Mvc.ModelBinding;
-using Swashbuckle.AspNetCore.Newtonsoft;
-using Newtonsoft.Json;
 
 namespace Swashbuckle.AspNetCore.SwaggerGen.Test
 {
@@ -18,7 +16,7 @@ namespace Swashbuckle.AspNetCore.SwaggerGen.Test
 
         public XmlCommentsSchemaFilterTests()
         {
-            _apiModelResolver = new NewtonsoftApiModelResolver(new JsonSerializerSettings(), new SchemaGeneratorOptions());
+            _apiModelResolver = new JsonApiModelResolver(new JsonSerializerOptions(), new SchemaGeneratorOptions());
         }
 
         [Theory]

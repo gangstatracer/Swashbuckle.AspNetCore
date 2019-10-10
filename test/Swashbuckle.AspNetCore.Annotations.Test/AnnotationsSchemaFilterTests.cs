@@ -1,9 +1,8 @@
 ﻿using System;
+using System.Text.Json;
 using Microsoft.OpenApi.Models;
 using Xunit;
 using Swashbuckle.AspNetCore.SwaggerGen;
-using Swashbuckle.AspNetCore.Newtonsoft;
-using Newtonsoft.Json;
 
 namespace Swashbuckle.AspNetCore.Annotations.Test
 {
@@ -13,7 +12,7 @@ namespace Swashbuckle.AspNetCore.Annotations.Test
 
         public AnnotationsSchemaFilterTests()
         {
-            _apiModelResolver = new NewtonsoftApiModelResolver(new JsonSerializerSettings(), new SchemaGeneratorOptions());
+            _apiModelResolver = new JsonApiModelResolver(new JsonSerializerOptions(), new SchemaGeneratorOptions());
         }
 
         [Theory]
